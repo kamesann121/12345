@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>連打チャットゲーム - リアルタイム版</title>
+<style>
+  :root{--bg:#071123;--accent:#7c3aed;--muted:#9aa4b2;--glass:rgba(255,255,255,0.03);font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial}
+  *{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#041021,#071223);color:#e6eef6}
+  .wrap{max-width:1100px;margin:24px auto;padding:16px;display:grid;grid-template-columns:1fr 380px;gap:16px}
+  @media(max-width:880px){.wrap{grid-template-columns:1fr}}
+  .panel{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));border-radius:12px;padding:16px}
+  .score{font-size:72px;color:var(--accent);font-weight:700}
+  .controls{display:flex;gap:8px;align-items:center}
+  .btn{padding:10px 14px;border-radius:8px;border:0;background:linear-gradient(90deg,var(--accent),#4c1d95);color:white;cursor:pointer}
+  .small{font-size:13px;color:var(--muted)}
+  .history{margin-top:8px;background:var(--glass);padding:12px;border-radius:8px;color:var(--muted);max-height:120px;overflow:auto;white-space:pre-line}
+
+  /* online box */
+  .online-box{position:fixed;right:18px;top:18px;width:220px;background:linear-gradient(180deg,rgba(255,255,255,0.03),rgba(0,0,0,0.02));border-radius:10px;padding:10px;font-size:13px}
+  .online-list{max-height:240px;overflow:auto}
+  .online-item{display:flex;justify-content:space-between;padding:6px;border-radius:6px;margin-bottom:6px;background:rgba(255,255,255,0.01)}
+  .you{outline:1px solid rgba(124,58,237,0.16)}
+
+  /* shop */
+  .shop-toggle{position:fixed;right:18px;bottom:18px;width:56px;height:56px;border-radius:999px;background:linear-gradient(180deg,var(--accent),#4c1d95);display:flex;align-items:center;justify-content:center;cursor:pointer}
+  .shop-panel{position:fixed;right:18px;bottom:86px;width:340px;max-height:72vh;overflow:auto;background:linear-gradient(180deg,rgba(255,255,255,0.03),rgba(0,0,0,0.02));border-radius:12px;padding:12px;transform:translateY(14px) scale(0.96);opacity:0;pointer-events:none;transition:transform .32s cubic-bezier(.2,.9,.25,1),opacity .22s}
+  .shop-panel.open{transform:translateY(0) scale(1);opacity:1;pointer-events:auto}
+  .shop-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  .item{background:rgba(255,255,255,0.02);padding:8px;border-radius:8px;display:flex;gap:8px;align-items:center}
+  .inventory{margin-top:8px;background:rgba(255,255,255,0.01);padding:8px;border-radius:8px;font-size:13px;color:var(--muted)}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><strong>連打チャットゲーム</strong><div class="small">リアルタイム対応</div></div>
+        <div class="small">保存: ローカル & サーバ</div>
+      </div>
+
+      <div style="text-align:center;margin-top:18px">
+        <div class="score" id="score">0</div>
+        <div style="margin-top:12px" class="controls">
+          <button id="tapBtn" class="btn">連打する</button>
+          <button id="saveScoreBtn" class="btn" style="background:#111827">スコア保存</button>
+          <button id="resetBtn" class="btn" style="background:transparent;border:1px solid rgba(255,255,255,0.06)">リセット</button>
+        </div>
+        <div class="history" id="history">まだプレイされていません。</div>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div><strong>チャット</strong></div>
+        <div class="small">リアルタイム (WebSocket優先)</div>
+      </div>
+      <div id="messages" style="margin-top:12px;max-height:360px;overflow:auto;background:linear-gradient(180deg,rgba(255,255,255,0.01),transparent);padding:8px;border-radius:8px"></div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <input id="nick" type="text" placeholder="ニックネーム" style="width:120px;padding:8px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.06);color:inherit">
+        <input id="msgInput" type="text" placeholder="メッセージ" style="flex:1;padding:8px;border-radius:8px;background:transparent;border:1px solid rgba(255,255,255,0.06);color:inherit">
+        <button id="sendBtn" class="btn">送信</button>
+      </div>
+      <div style="margin-top:8px" class="small">接続状態: <span id="connState">未接続</span></div>
+    </aside>
+  </div>
+
+  <div class="online-box" id="onlineBox">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div><strong>参加者</strong></div>
+      <div class="small" id="onlineCount">0</div>
+    </div>
+    <div class="online-list" id="onlineList"></div>
+  </div>
+
+  <div class="shop-toggle" id="shopToggle" title="ショップ">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M3 7h18v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7z" stroke="#fff" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 7V5a4 4 0 0 0-8 0v2" stroke="#fff" stroke-width="1.2"/></svg>
+  </div>
+
+  <div class="shop-panel" id="shopPanel" aria-hidden="true">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div><strong>ショップ</strong><div class="small">所持コイン: <span id="coins">100</span></div></div>
+      <div class="small">アイテム: 20</div>
+    </div>
+    <div class="shop-grid" id="shopGrid"></div>
+    <div class="inventory" id="invList"><strong>所持:</strong><div id="invItems">なし</div></div>
+  </div>
+
+<script>
+/* クライアント実装
+ - WebSocket があればそちらで chat/presence/tap を送受信（推奨）
+ - WebSocket が無い場合は BroadcastChannel で同一ブラウザ内同期
+ - タップ数と名前は localStorage に完全保存。サーバ接続時は 'tap' メッセージで送る
+*/
+
+// 設定
+const STORAGE_KEY = 'tapchat_v2';
+const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.hostname + (location.port ? (':' + location.port) : ':8080'); // デフォルトは同ホスト:8080か適宜変更
+
+// UI elements
+const scoreEl = document.getElementById('score');
+const tapBtn = document.getElementById('tapBtn');
+const saveScoreBtn = document.getElementById('saveScoreBtn');
+const resetBtn = document.getElementById('resetBtn');
+const historyEl = document.getElementById('history');
+
+const nickInput = document.getElementById('nick');
+const msgInput = document.getElementById('msgInput');
+const sendBtn = document.getElementById('sendBtn');
+const messagesEl = document.getElementById('messages');
+
+const onlineListEl = document.getElementById('onlineList');
+const onlineCountEl = document.getElementById('onlineCount');
+const connStateEl = document.getElementById('connState');
+
+const shopToggle = document.getElementById('shopToggle');
+const shopPanel = document.getElementById('shopPanel');
+const shopGrid = document.getElementById('shopGrid');
+const coinsEl = document.getElementById('coins');
+const invItemsEl = document.getElementById('invItems');
+
+// タブ固有IDおよびデータ
+const TAB_ID = Math.random().toString(36).slice(2,10);
+let nick = localStorage.getItem(STORAGE_KEY + '_nick') || ('User' + Math.floor(Math.random()*900+100));
+nickInput.value = nick;
+
+// persisted data: tapsByName: { name: total }
+let tapsByName = JSON.parse(localStorage.getItem(STORAGE_KEY + '_taps') || '{}');
+let myName = nick;
+let myTotal = tapsByName[myName] || 0;
+
+// coins & inventory
+let coins = parseInt(localStorage.getItem(STORAGE_KEY + '_coins') || '100', 10);
+let inventory = JSON.parse(localStorage.getItem(STORAGE_KEY + '_inv') || '[]');
+coinsEl.textContent = String(coins);
+
+// communication: WebSocket primary, BroadcastChannel fallback
+let ws = null;
+let bc = (typeof BroadcastChannel !== 'undefined') ? new BroadcastChannel('tap-chat-channel') : null;
+let connectedToWs = false;
+
+// helpers
+function saveLocal() {
+  localStorage.setItem(STORAGE_KEY + '_taps', JSON.stringify(tapsByName));
+  localStorage.setItem(STORAGE_KEY + '_nick', nick);
+  localStorage.setItem(STORAGE_KEY + '_coins', String(coins));
+  localStorage.setItem(STORAGE_KEY + '_inv', JSON.stringify(inventory));
+}
+function renderScore() { scoreEl.textContent = String(myTotal || 0); }
+function pushMessage(nick, text, ts = Date.now(), system = false) {
+  const el = document.createElement('div');
+  el.style.marginBottom = '8px';
+  el.innerHTML = `<div class="small" style="color:${system ? '#9aa4b2' : '#cfeaff'}"><strong>${escapeHtml(nick)}</strong> · ${new Date(ts).toLocaleTimeString()}</div><div>${escapeHtml(text)}</div>`;
+  messagesEl.appendChild(el);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
+// WebSocket 接続
+function connectWs() {
+  try {
+    ws = new WebSocket(WS_URL);
+  } catch (e) {
+    setConnState('WS error');
+    return;
+  }
+  setConnState('接続中...');
+  ws.addEventListener('open', () => {
+    connectedToWs = true;
+    setConnState('WS 接続中');
+    // 初期同期: send presence and taps snapshot for our name
+    ws.send(JSON.stringify({ type: 'presence', payload: { tabId: TAB_ID, nick: nick, score: myTotal } }));
+    ws.send(JSON.stringify({ type: 'get_taps' }));
+    // send our tap totals for server aggregation
+    for (const name in tapsByName) {
+      ws.send(JSON.stringify({ type: 'tap', payload: { name, total: tapsByName[name], delta: 0 } }));
+    }
+  });
+  ws.addEventListener('message', (ev) => {
+    let data;
+    try { data = JSON.parse(ev.data); } catch (e) { return; }
+    if (data.type === 'init') {
+      // server snapshot: { db }
+      const db = data.payload && data.payload.db;
+      if (db && db.chat) {
+        db.chat.forEach(m => pushMessage(m.nick, m.text, m.ts, m.nick === 'System'));
+      }
+      // taps present
+      if (db && db.taps) {
+        // merge server taps into local view (but keep local as source of truth for per-name totals)
+        Object.keys(db.taps).forEach(k => {
+          // show in UI via server broadcast (taps_update)
+        });
+      }
+    } else if (data.type === 'chat') {
+      const m = data.payload; if (m) pushMessage(m.nick, m.text, m.ts, m.nick === 'System');
+    } else if (data.type === 'presence') {
+      // payload is map of users
+      const users = data.payload || {};
+      renderOnlineFromServer(users);
+    } else if (data.type === 'taps_update') {
+      const p = data.payload;
+      if (p && p.name) {
+        // reflect server aggregated taps into local storage only if we don't have a newer local value
+        const local = tapsByName[p.name] || 0;
+        if (p.total > local) {
+          tapsByName[p.name] = p.total;
+          saveLocal();
+          if (p.name === myName) { myTotal = p.total; renderScore(); }
+        }
+        updateTapsUI();
+      }
+    } else if (data.type === 'taps_snapshot') {
+      const snap = data.payload || {};
+      Object.keys(snap).forEach(k => { /* integrate if desired */ });
+      updateTapsUI();
+    }
+  });
+  ws.addEventListener('close', () => {
+    connectedToWs = false;
+    setConnState('WS 切断');
+    ws = null;
+  });
+  ws.addEventListener('error', () => {
+    connectedToWs = false;
+    setConnState('WS エラー');
+  });
+}
+function setConnState(s){ connStateEl.textContent = s; }
+
+// BroadcastChannel fallback
+if (bc) {
+  bc.onmessage = (ev) => {
+    const data = ev.data;
+    if (!data || !data.type) return;
+    if (data.type === 'chat') {
+      pushMessage(data.nick, data.text, data.ts, data.nick === 'System');
+    } else if (data.type === 'presence') {
+      renderOnlineFromMap(data.payload || {});
+    } else if (data.type === 'taps_update') {
+      const p = data.payload;
+      if (p && p.name) {
+        // merge
+        const local = tapsByName[p.name] || 0;
+        if (p.total > local) {
+          tapsByName[p.name] = p.total;
+          saveLocal();
+          if (p.name === myName) { myTotal = p.total; renderScore(); }
+        }
+        updateTapsUI();
+      }
+    }
+  }
+}
+
+// helpers to broadcast with WS primary and BC fallback
+function publish(obj) {
+  if (connectedToWs && ws && ws.readyState === WebSocket.OPEN) {
+    try { ws.send(JSON.stringify(obj)); return; } catch (e) {}
+  }
+  if (bc) {
+    try { bc.postMessage(obj); } catch (e) {}
+  }
+}
+
+// Online rendering (server-provided)
+function renderOnlineFromServer(usersMap) {
+  const arr = Object.values(usersMap || {}).map(u => ({ name: u.nick, score: u.score || 0 }));
+  arr.sort((a,b) => b.score - a.score);
+  onlineListEl.innerHTML = '';
+  arr.forEach(u => {
+    const d = document.createElement('div');
+    d.className = 'online-item' + (u.name === myName ? ' you' : '');
+    d.innerHTML = `<div style="max-width:130px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(u.name)}</div><div class="small">${u.score}</div>`;
+    onlineListEl.appendChild(d);
+  });
+  onlineCountEl.textContent = arr.length;
+}
+// Online rendering (BC/local map) - simplified placeholder
+function renderOnlineFromMap(map) {
+  // map expected { tabId: {nick, score} } or object keyed by name
+  const arr = [];
+  for (const k in map) {
+    const it = map[k];
+    arr.push({name: it.nick || it.name || 'User', score: it.score || 0});
+  }
+  arr.sort((a,b)=> b.score - a.score);
+  onlineListEl.innerHTML = '';
+  arr.forEach(u => {
+    const d = document.createElement('div');
+    d.className = 'online-item' + (u.name === myName ? ' you' : '');
+    d.innerHTML = `<div style="max-width:130px;overflow:hidden;text-overflow:ellipsis">${escapeHtml(u.name)}</div><div class="small">${u.score}</div>`;
+    onlineListEl.appendChild(d);
+  });
+  onlineCountEl.textContent = arr.length;
+}
+
+// taps UI (show top names)
+function updateTapsUI() {
+  // create a small ranking in the history element
+  const arr = Object.keys(tapsByName).map(n => ({name: n, total: tapsByName[n]}));
+  arr.sort((a,b) => b.total - a.total);
+  const lines = arr.slice(0,10).map((it, idx) => `${idx+1}. ${it.name} — ${it.total}`);
+  historyEl.textContent = lines.length ? lines.join('\n') : 'まだプレイされていません。';
+}
+
+// actions
+tapBtn.addEventListener('click', () => {
+  myTotal = (tapsByName[myName] || 0) + 1;
+  tapsByName[myName] = myTotal;
+  saveLocal();
+  renderScore();
+  updateTapsUI();
+  // publish tap to server / bc
+  publish({ type: 'tap', payload: { name: myName, delta: 1, total: myTotal } });
+  // also send presence update
+  publish({ type: 'presence', payload: { tabId: TAB_ID, nick: myName, score: myTotal } });
+});
+window.addEventListener('keydown', (e) => { if (e.code === 'Space') { e.preventDefault(); tapBtn.click(); }});
+
+saveScoreBtn.addEventListener('click', () => {
+  // record to local leaders by pushing current total
+  const leaders = JSON.parse(localStorage.getItem(STORAGE_KEY + '_leaders') || '[]');
+  leaders.push({ nick: myName, score: myTotal, ts: Date.now() });
+  leaders.sort((a,b)=>b.score-a.score);
+  while(leaders.length>10) leaders.pop();
+  localStorage.setItem(STORAGE_KEY + '_leaders', JSON.stringify(leaders));
+  pushMessage('System', `${myName} のスコア ${myTotal} をローカルリーダーボードに保存しました`, Date.now(), true);
+});
+resetBtn.addEventListener('click', () => {
+  if (!confirm('スコアをリセットしますか？')) return;
+  myTotal = 0;
+  tapsByName[myName] = 0;
+  saveLocal(); renderScore(); updateTapsUI();
+  publish({ type: 'tap', payload: { name: myName, delta: 0, total: 0 } });
+  publish({ type: 'presence', payload: { tabId: TAB_ID, nick: myName, score: myTotal } });
+});
+
+// chat send
+sendBtn.addEventListener('click', () => {
+  const txt = msgInput.value.trim();
+  if (!txt) return;
+  const entry = { type: 'chat', nick: myName, text: txt };
+  publish(entry);
+  // local echo
+  pushMessage(myName, txt, Date.now());
+  msgInput.value = '';
+});
+
+// nickname change
+nickInput.addEventListener('change', () => {
+  const v = nickInput.value.trim();
+  if (!v) { nickInput.value = myName; return; }
+  // rename: preserve tapsByName under previous name and possibly migrate values
+  const prevName = myName;
+  myName = v;
+  nick = v;
+  localStorage.setItem(STORAGE_KEY + '_nick', nick);
+  // migrate taps: move existing value to new name if empty
+  if (!tapsByName[myName] && tapsByName[prevName]) {
+    tapsByName[myName] = tapsByName[prevName];
+    delete tapsByName[prevName];
+  }
+  myTotal = tapsByName[myName] || 0;
+  saveLocal();
+  renderScore(); updateTapsUI();
+  publish({ type: 'presence', payload: { tabId: TAB_ID, nick: myName, score: myTotal } });
+});
+
+// persistent restore
+renderScore();
+updateTapsUI();
+
+// shop basic implementation (20 items)
+const shopItems = [
+  {id:'i01', name:'力の薬', type:'boost', desc:'次のボーナス: +10%', price:30},
+  {id:'i02', name:'素早さの薬', type:'boost', desc:'連打感覚向上', price:30},
+  {id:'i03', name:'スタートブースト', type:'boost', desc:'即時+5点', price:25},
+  {id:'i04', name:'ダブルタップ', type:'utility', desc:'1回だけスコアを2倍', price:40},
+  {id:'i05', name:'保険', type:'utility', desc:'誤操作で1回保護', price:20},
+  {id:'i06', name:'ゴールドスキン', type:'cosmetic', desc:'スコア表示を金色に', price:15},
+  {id:'i07', name:'ネオンスキン', type:'cosmetic', desc:'チャット名の色変更', price:15},
+  {id:'i08', name:'バフ缶', type:'boost', desc:'継続的小ボーナス', price:18},
+  {id:'i09', name:'瞬発の石', type:'boost', desc:'瞬間ボーナス', price:35},
+  {id:'i10', name:'自動タップ', type:'utility', desc:'短時間自動で増加', price:45},
+  {id:'i11', name:'称号:勇者', type:'cosmetic', desc:'ニックネームに称号', price:10},
+  {id:'i12', name:'称号:猛者', type:'cosmetic', desc:'ニックネームに称号', price:12},
+  {id:'i13', name:'広告オフ', type:'utility', desc:'外部通知抑制', price:50},
+  {id:'i14', name:'経験書', type:'utility', desc:'リーダーボーナス増加', price:28},
+  {id:'i15', name:'祝福の鈴', type:'boost', desc:'スコア小ボーナス', price:22},
+  {id:'i16', name:'ライトスキン', type:'cosmetic', desc:'UIをライトに変更', price:14},
+  {id:'i17', name:'影のスキン', type:'cosmetic', desc:'UIをダーク寄せに', price:14},
+  {id:'i18', name:'運の種', type:'utility', desc:'ランダムボーナス', price:26},
+  {id:'i19', name:'フレーム:金', type:'cosmetic', desc:'プロフィール枠', price:16},
+  {id:'i20', name:'メガブースト', type:'boost', desc:'大ボーナス', price:75}
+];
+
+function renderShop(){
+  shopGrid.innerHTML = '';
+  shopItems.forEach(it=>{
+    const el = document.createElement('div');
+    el.className = 'item';
+    el.innerHTML = `<div style="width:40px;height:40px;border-radius:6px;background:rgba(255,255,255,0.03);display:flex;align-items:center;justify-content:center">${escapeHtml(it.name.charAt(0))}</div>
+      <div style="flex:1"><div style="font-weight:700">${escapeHtml(it.name)}</div><div class="small">${escapeHtml(it.desc)}</div></div>
+      <div style="text-align:right"><div style="font-weight:700">${it.price}</div><button data-id="${it.id}" class="btn" style="margin-top:6px;padding:6px 8px">購入</button></div>`;
+    shopGrid.appendChild(el);
+  });
+}
+shopGrid.addEventListener('click', (e)=>{
+  const b = e.target.closest('button[data-id]');
+  if (!b) return;
+  const id = b.getAttribute('data-id');
+  const it = shopItems.find(x => x.id === id);
+  if (!it) return;
+  if (coins < it.price) { alert('コインが足りません'); return; }
+  coins -= it.price;
+  inventory.push(it.id);
+  saveLocal();
+  coinsEl.textContent = String(coins);
+  invItemsEl.textContent = inventory.map(i => shopItems.find(s=>s.id===i).name).join(', ');
+  // system chat announce
+  publish({ type: 'chat', nick: 'System', text: `${myName} が ${it.name} を購入しました` });
+  pushMessage('System', `${myName} が ${it.name} を購入しました`, Date.now(), true);
+});
+
+// shop toggle
+shopToggle.addEventListener('click', () => {
+  const open = shopPanel.classList.toggle('open');
+  shopPanel.setAttribute('aria-hidden', String(!open));
+  shopToggle.animate([{transform:'rotate(0)'},{transform:'rotate(18deg)'},{transform:'rotate(0)'}],{duration:420});
+});
+
+// init UI
+renderShop();
+invItemsEl.textContent = inventory.length ? inventory.map(i=>shopItems.find(s=>s.id===i).name).join(', ') : 'なし';
+
+// startup: attempt WebSocket
+connectWs();
+
+// periodic presence broadcast (WS preferred, BC fallback)
+setInterval(()=> {
+  publish({ type: 'presence', payload: { tabId: TAB_ID, nick: myName, score: myTotal } });
+}, 3000);
+
+// BC broadcast on close
+window.addEventListener('beforeunload', () => {
+  publish({ type: 'presence_left', payload: { tabId: TAB_ID } });
+  publish({ type: 'presence', payload: { tabId: TAB_ID, nick: myName, score: myTotal, ts: Date.now() - 8000 } });
+  if (connectedToWs && ws) {
+    try { ws.send(JSON.stringify({ type: 'disconnect_me' })); } catch (e) {}
+  }
+});
+
+// handle BC if WS not connected (already wired above)
+
+// display any server-provided taps/updates via messages or taps_update handling (handled in ws message event)
+
+// initial presence announce
+publish({ type: 'presence', payload: { tabId: TAB_ID, nick: myName, score: myTotal } });
+
+</script>
+</body>
+</html>
