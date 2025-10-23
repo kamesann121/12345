@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>連打チャットゲーム + ショップ</title>
+  <style>
+    :root{
+      --bg:#071123;
+      --panel:#0b1824;
+      --glass: rgba(255,255,255,0.03);
+      --accent:#7c3aed;
+      --accent-2:#4c1d95;
+      --muted:#9aa4b2;
+      --success:#10b981;
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,#041021 0%,#071223 100%);color:#e6eef6}
+    .wrap{max-width:1100px;margin:24px auto;padding:16px;display:grid;grid-template-columns:1fr 380px;gap:16px}
+    @media (max-width:880px){.wrap{grid-template-columns:1fr;}}
+    .panel{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;padding:16px;color:inherit;box-shadow:0 6px 18px rgba(2,6,23,0.6)}
+    .game{display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;min-height:420px}
+    .title{font-size:20px;font-weight:600;display:flex;gap:8px;align-items:center}
+    .score{font-size:72px;font-weight:700;color:var(--accent);letter-spacing:2px}
+    .btn{appearance:none;border:0;padding:12px 16px;border-radius:10px;background:linear-gradient(90deg,var(--accent),var(--accent-2));color:white;font-weight:700;cursor:pointer;box-shadow:0 6px 16px rgba(124,58,237,0.16)}
+    .btn.secondary{background:#111827}
+    .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,0.04)}
+    .controls{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+    .small{font-size:14px;color:var(--muted)}
+    .meta{display:flex;gap:12px;align-items:center}
+    .history{margin-top:8px;background:var(--glass);padding:12px;border-radius:8px;color:var(--muted);max-height:120px;overflow:auto;white-space:pre-line}
+    .leaderboard{margin-top:12px;background:rgba(255,255,255,0.02);padding:8px;border-radius:8px;color:var(--muted)}
+    .chat{display:flex;flex-direction:column;height:100%}
+    .chat-header{display:flex;justify-content:space-between;align-items:center}
+    .messages{flex:1;overflow:auto;margin-top:12px;padding:8px;background:linear-gradient(180deg, rgba(255,255,255,0.01), transparent);border-radius:8px}
+    .msg{padding:8px;border-radius:8px;margin-bottom:8px;background:rgba(255,255,255,0.02)}
+    .msg .meta{font-size:12px;color:var(--muted);margin-bottom:6px}
+    .input-row{display:flex;gap:8px;margin-top:12px}
+    input[type="text"]{flex:1;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+    .nick{width:120px}
+    footer{margin-top:12px;font-size:12px;color:var(--muted);text-align:center}
+
+    /* オンラインランキング（右上固定） */
+    .online-box{
+      position:fixed; right:18px; top:18px; width:220px; z-index:600;
+      background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));
+      border-radius:10px;padding:10px;color:#e6eef6;box-shadow:0 8px 30px rgba(2,6,23,0.6);
+      font-size:13px;
+    }
+    .online-box h4{margin:0 0 8px 0;font-size:14px}
+    .online-list{max-height:240px;overflow:auto}
+    .online-item{display:flex;justify-content:space-between;padding:6px;border-radius:6px;margin-bottom:6px;background:rgba(255,255,255,0.01)}
+    .you{outline:1px solid rgba(124,58,237,0.18)}
+    .online-count{font-size:12px;color:var(--muted);margin-bottom:6px}
+    @media (max-width:880px){ .online-box{position:static;margin-top:8px;width:auto} }
+
+    /* ショップ UI */
+    .shop-toggle{
+      position:fixed; right:18px; bottom:18px; z-index:700; width:56px; height:56px; border-radius:999px;
+      background:linear-gradient(180deg,var(--accent),var(--accent-2)); display:flex;align-items:center;justify-content:center;box-shadow:0 12px 30px rgba(4,8,20,0.6); cursor:pointer;
+    }
+    .shop-panel{
+      position:fixed; right:18px; bottom:86px; z-index:700; width:340px; max-height:72vh; overflow:auto;
+      background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));
+      border-radius:12px;padding:12px;color:inherit;box-shadow:0 12px 36px rgba(2,6,23,0.6);
+      transform-origin:100% 100%; transform: translateY(14px) scale(0.96); opacity:0; pointer-events:none;
+      transition: transform 320ms cubic-bezier(.2,.9,.25,1), opacity 220ms ease;
+    }
+    .shop-panel.open{ transform: translateY(0) scale(1); opacity:1; pointer-events:auto; }
+    .shop-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+    .item{
+      background:rgba(255,255,255,0.02);padding:8px;border-radius:8px;display:flex;gap:8px;align-items:center;
+    }
+    .item .icon{width:44px;height:44px;border-radius:8px;background:linear-gradient(135deg,#ffffff10,#00000010);display:flex;align-items:center;justify-content:center;font-weight:700}
+    .item .meta{flex:1}
+    .item .meta .name{font-weight:700}
+    .item .meta .desc{font-size:12px;color:var(--muted)}
+    .item .buy{padding:6px 8px;border-radius:8px;background:linear-gradient(90deg,var(--accent),var(--accent-2));font-weight:700;color:white;cursor:pointer}
+    .inventory{margin-top:8px;background:rgba(255,255,255,0.01);padding:8px;border-radius:8px;font-size:13px;color:var(--muted)}
+    .shop-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+    .shop-filter{display:flex;gap:6px;margin-bottom:8px}
+    .pill{padding:6px 8px;border-radius:999px;background:rgba(255,255,255,0.02);font-size:13px;cursor:pointer}
+    .pill.active{background:linear-gradient(90deg,var(--accent),var(--accent-2));color:white}
+
+    /* 小さなアクセント */
+    .badge{background:var(--success);color:#042017;padding:4px 8px;border-radius:999px;font-size:12px;margin-left:8px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="panel game" id="gamePanel" aria-label="連打ゲーム">
+      <div class="title">連打チャットゲーム<span class="small">— 連打してスコアを上げよう</span></div>
+      <div class="score" id="score">0</div>
+      <div class="controls">
+        <button id="tapBtn" class="btn">連打する</button>
+        <button id="resetBtn" class="btn ghost">リセットスコア</button>
+      </div>
+      <div class="meta">
+        <div class="small">連打数はローカルに保存されます</div>
+      </div>
+      <div class="history" id="history">まだプレイされていません。</div>
+      <div class="leaderboard" id="leaderboard"><strong>ローカルリーダーボード</strong><div id="leaders"></div></div>
+      <footer>タブを複数開くと同一ブラウザ内で参加者が見えます</footer>
+    </section>
+
+    <aside class="panel chat" id="chatPanel" aria-label="チャットパネル">
+      <div class="chat-header">
+        <div><strong>チャット</strong></div>
+        <div class="small">ニックネームを設定してから送信してください</div>
+      </div>
+      <div class="messages" id="messages" role="log" aria-live="polite"></div>
+      <div class="input-row">
+        <input id="nick" class="nick" type="text" placeholder="ニックネーム" />
+        <input id="msgInput" type="text" placeholder="メッセージを入力" />
+        <button id="sendBtn" class="btn">送信</button>
+      </div>
+      <div class="small" style="margin-top:8px">このチャットは同一ブラウザのタブ間で同期されます。将来的に WebSocket へ差し替え可能です。</div>
+    </aside>
+  </div>
+
+  <div class="online-box" id="onlineBox" aria-live="polite">
+    <h4>現在の参加者 <span class="badge" id="badgeOnline">0</span></h4>
+    <div class="online-list" id="onlineList"></div>
+  </div>
+
+  <!-- ショップトグル -->
+  <div class="shop-toggle" id="shopToggle" title="ショップを開く">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M3 7h18v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7z" stroke="white" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M16 7V5a4 4 0 0 0-8 0v2" stroke="white" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </div>
+
+  <div class="shop-panel" id="shopPanel" aria-hidden="true">
+    <div class="shop-header">
+      <div><strong>ショップ</strong><div class="small">ゲーム内アイテムを購入</div></div>
+      <div><span class="small">所持: <strong id="coins">100</strong></span></div>
+    </div>
+
+    <div class="shop-filter" id="filterRow">
+      <div class="pill active" data-filter="all">すべて</div>
+      <div class="pill" data-filter="boost">ブースト</div>
+      <div class="pill" data-filter="cosmetic">見た目</div>
+      <div class="pill" data-filter="utility">ユーティリティ</div>
+    </div>
+
+    <div class="shop-grid" id="shopGrid"></div>
+
+    <div class="inventory" id="inventory">
+      <strong>所持アイテム</strong>
+      <div id="invList" style="margin-top:6px">なし</div>
+    </div>
+  </div>
+
+  <script>
+    // 基本状態（ラウンド・タイマーは削除）
+    let score = 0;
+    let running = true; // 常時プレイ可能フラグ（将来的にON/OFFする場合に使える）
+    const scoreEl = document.getElementById('score');
+    const historyEl = document.getElementById('history');
+    const leadersEl = document.getElementById('leaders');
+
+    const tapBtn = document.getElementById('tapBtn');
+    const resetBtn = document.getElementById('resetBtn');
+
+    // BroadcastChannel（同一ブラウザのタブ間同期）
+    const bc = ('BroadcastChannel' in window) ? new BroadcastChannel('tap-chat-channel') : null;
+    const STORAGE_KEY = 'tapchat_state_v1';
+
+    // チャット要素
+    const messagesEl = document.getElementById('messages');
+    const nickInput = document.getElementById('nick');
+    const msgInput = document.getElementById('msgInput');
+    const sendBtn = document.getElementById('sendBtn');
+
+    // オンライン要素
+    const onlineListEl = document.getElementById('onlineList');
+    const badgeOnline = document.getElementById('badgeOnline');
+
+    // タブ固有ID
+    const TAB_ID = Math.random().toString(36).slice(2,12);
+
+    // ニックネーム復元
+    nickInput.value = localStorage.getItem('tapchat_nick') || ('User' + Math.floor(Math.random()*900+100));
+
+    // Presence 管理
+    const PRESENCE_TTL = 7000;
+    const HEARTBEAT_INTERVAL = 3000;
+    const onlineMap = new Map();
+
+    // ショップデータ（20個）
+    const shopItems = [
+      {id:'i01', name:'力の薬', type:'boost', desc:'次のボーナス: +10%', price:30},
+      {id:'i02', name:'素早さの薬', type:'boost', desc:'連打感覚向上', price:30},
+      {id:'i03', name:'スタートブースト', type:'boost', desc:'即時+5点', price:25},
+      {id:'i04', name:'ダブルタップ', type:'utility', desc:'1回だけスコアを2倍', price:40},
+      {id:'i05', name:'保険', type:'utility', desc:'誤操作で1回保護', price:20},
+      {id:'i06', name:'ゴールドスキン', type:'cosmetic', desc:'スコア表示を金色に', price:15},
+      {id:'i07', name:'ネオンスキン', type:'cosmetic', desc:'チャット名の色変更', price:15},
+      {id:'i08', name:'バフ缶', type:'boost', desc:'継続的小ボーナス', price:18},
+      {id:'i09', name:'瞬発の石', type:'boost', desc:'瞬間ボーナス', price:35},
+      {id:'i10', name:'自動タップ', type:'utility', desc:'短時間自動で増加', price:45},
+      {id:'i11', name:'称号:勇者', type:'cosmetic', desc:'ニックネームに称号', price:10},
+      {id:'i12', name:'称号:猛者', type:'cosmetic', desc:'ニックネームに称号', price:12},
+      {id:'i13', name:'広告オフ', type:'utility', desc:'外部通知抑制', price:50},
+      {id:'i14', name:'経験書', type:'utility', desc:'リーダーボーナス増加', price:28},
+      {id:'i15', name:'祝福の鈴', type:'boost', desc:'スコア小ボーナス', price:22},
+      {id:'i16', name:'ライトスキン', type:'cosmetic', desc:'UIをライトに変更', price:14},
+      {id:'i17', name:'影のスキン', type:'cosmetic', desc:'UIをダーク寄せに', price:14},
+      {id:'i18', name:'運の種', type:'utility', desc:'ランダムボーナス', price:26},
+      {id:'i19', name:'フレーム:金', type:'cosmetic', desc:'プロフィール枠', price:16},
+      {id:'i20', name:'メガブースト', type:'boost', desc:'大ボーナス', price:75}
+    ];
+
+    // 所持とコイン
+    let coins = parseInt(localStorage.getItem(STORAGE_KEY + '_coins') || '100', 10);
+    let inventory = JSON.parse(localStorage.getItem(STORAGE_KEY + '_inv') || '[]');
+    document.getElementById('coins').textContent = String(coins);
+
+    // スコア操作
+    function updateScore(v){
+      score = Math.max(0, score + v);
+      scoreEl.textContent = score;
+      broadcast({type:'score_update', score, tab: TAB_ID});
+      announcePresence();
+      saveLocalState();
+    }
+
+    function resetAll(){
+      score = 0;
+      scoreEl.textContent = '0';
+      historyEl.textContent = 'リセットされました。';
+      broadcast({type:'reset'});
+      announcePresence();
+      saveLocalState();
+    }
+
+    // ローカルリーダーボード（スコアを手動で記録するボタンは無いため、ここでは任意に記録する関数を残す）
+    function recordScoreToLeaders(){
+      const s = score;
+      const leaders = JSON.parse(localStorage.getItem(STORAGE_KEY + '_leaders') || '[]');
+      leaders.push({nick: nickInput.value || 'Anonymous', score: s, time: Date.now()});
+      leaders.sort((a,b)=>b.score-a.score);
+      while(leaders.length>10) leaders.pop();
+      localStorage.setItem(STORAGE_KEY + '_leaders', JSON.stringify(leaders));
+      renderLeaders(leaders);
+    }
+    function renderLeaders(list){
+      leadersEl.innerHTML = '';
+      if(!list || !list.length){ leadersEl.textContent = 'まだ記録がありません'; return; }
+      list.forEach((it, idx)=>{
+        const el = document.createElement('div');
+        el.textContent = (idx+1)+'. '+it.nick+' — '+it.score;
+        leadersEl.appendChild(el);
+      });
+    }
+
+    // 保存・復元
+    function saveLocalState(){
+      const state = {score, running, nick: nickInput.value};
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(STORAGE_KEY + '_coins', String(coins));
+      localStorage.setItem(STORAGE_KEY + '_inv', JSON.stringify(inventory));
+    }
+    function restoreLocalState(){
+      try{
+        const s = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        if(s){
+          score = s.score||0;
+          scoreEl.textContent = score;
+        }
+        const leaders = JSON.parse(localStorage.getItem(STORAGE_KEY + '_leaders') || '[]');
+        renderLeaders(leaders);
+        renderInventory();
+      }catch(e){}
+    }
+    restoreLocalState();
+
+    // Broadcast
+    function broadcast(payload){
+      try{ if(bc) bc.postMessage(payload); }catch(e){}
+    }
+
+    // Presence
+    function announcePresence(){
+      const nick = (nickInput.value || 'Anonymous').trim() || ('User' + Math.floor(Math.random()*900+100));
+      const payload = { type:'presence', tab: TAB_ID, nick, score, ts: Date.now() };
+      broadcast(payload);
+      onlineMap.set(TAB_ID, {nick, score, ts: payload.ts});
+      renderOnline();
+    }
+    let hbTimer = null;
+    function startHeartbeat(){
+      announcePresence();
+      if(hbTimer) clearInterval(hbTimer);
+      hbTimer = setInterval(()=>{ announcePresence(); cleanupOffline(); }, HEARTBEAT_INTERVAL);
+    }
+    function stopHeartbeat(){ if(hbTimer) clearInterval(hbTimer); hbTimer = null; }
+
+    if(bc){
+      bc.onmessage = (ev)=>{
+        const data = ev.data;
+        if(!data || !data.type) return;
+        if(data.type === 'presence'){
+          onlineMap.set(data.tab, {nick: data.nick, score: data.score, ts: data.ts});
+          renderOnline();
+        } else if(data.type === 'presence_left'){
+          onlineMap.delete(data.tab); renderOnline();
+        } else if(data.type === 'score_update'){
+          const entry = onlineMap.get(data.tab) || {};
+          entry.score = data.score; entry.ts = Date.now(); onlineMap.set(data.tab, entry); renderOnline();
+        } else if(data.type === 'reset'){
+          resetAll();
+        } else if(data.type === 'chat'){
+          pushMessageToDOM(data.payload, false);
+        }
+      };
+    }
+
+    function cleanupOffline(){
+      const now = Date.now();
+      let changed = false;
+      for(const [tab, info] of onlineMap.entries()){
+        if(now - (info.ts || 0) > PRESENCE_TTL){
+          onlineMap.delete(tab);
+          changed = true;
+        }
+      }
+      if(changed) renderOnline();
+    }
+
+    function renderOnline(){
+      const arr = Array.from(onlineMap.entries()).map(([tab, info])=>({tab, nick: info.nick || 'User', score: info.score || 0, ts: info.ts || 0}));
+      arr.sort((a,b)=> (b.score - a.score) || (b.ts - a.ts));
+      onlineListEl.innerHTML = '';
+      arr.slice(0,20).forEach((it)=>{
+        const div = document.createElement('div');
+        div.className = 'online-item' + (it.tab === TAB_ID ? ' you' : '');
+        div.innerHTML = `<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px">${escapeHtml(it.nick)}</div><div style="color:var(--muted)">${it.score}</div>`;
+        onlineListEl.appendChild(div);
+      });
+      badgeOnline.textContent = String(arr.length);
+    }
+
+    function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=> ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    // UI イベント（連打）
+    tapBtn.addEventListener('click', ()=>{ if(running){ updateScore(1); pulse(tapBtn); } });
+    window.addEventListener('keydown', (e)=>{ if(e.code==='Space'){ e.preventDefault(); if(running) updateScore(1); pulse(tapBtn); } });
+    resetBtn.addEventListener('click', ()=>{ resetAll(); localStorage.removeItem(STORAGE_KEY + '_leaders'); renderLeaders([]); });
+
+    function pulse(el){ el.animate([{transform:'scale(1)'},{transform:'scale(0.96)'},{transform:'scale(1)'}],{duration:120}); }
+
+    // チャット
+    function sendChat(){
+      const nick = (nickInput.value || 'Anonymous').trim();
+      if(!nick) return;
+      localStorage.setItem('tapchat_nick', nick);
+      const text = msgInput.value.trim();
+      if(!text) return;
+      const msg = {nick, text, ts: Date.now()};
+      pushMessageToDOM(msg, true);
+      const all = JSON.parse(localStorage.getItem(STORAGE_KEY + '_msgs') || '[]');
+      all.push(msg); while(all.length>200) all.shift();
+      localStorage.setItem(STORAGE_KEY + '_msgs', JSON.stringify(all));
+      broadcast({type:'chat', payload:msg});
+      msgInput.value = '';
+    }
+    function pushMessageToDOM(msg, mine){
+      const el = document.createElement('div');
+      el.className = 'msg';
+      const time = new Date(msg.ts);
+      const hh = time.toLocaleTimeString();
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = msg.nick + ' · ' + hh;
+      const body = document.createElement('div');
+      body.textContent = msg.text;
+      el.appendChild(meta); el.appendChild(body);
+      messagesEl.appendChild(el); messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+    sendBtn.addEventListener('click', sendChat);
+    msgInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter') sendChat(); });
+
+    (function restoreMsgs(){ try{ const all = JSON.parse(localStorage.getItem(STORAGE_KEY + '_msgs') || '[]'); all.forEach(m => pushMessageToDOM(m, false)); }catch(e){} })();
+
+    setInterval(saveLocalState, 2000);
+    nickInput.addEventListener('change', ()=>{ localStorage.setItem('tapchat_nick', nickInput.value); announcePresence(); });
+
+    window.addEventListener('beforeunload', ()=>{
+      broadcast({type:'presence_left', tab: TAB_ID});
+      broadcast({type:'presence', tab: TAB_ID, nick: (nickInput.value||'Anonymous'), score, ts: Date.now()-PRESENCE_TTL-1});
+    });
+
+    // ---------- ショップ機能 ----------
+    const shopToggle = document.getElementById('shopToggle');
+    const shopPanel = document.getElementById('shopPanel');
+    const shopGrid = document.getElementById('shopGrid');
+    const coinsEl = document.getElementById('coins');
+    const invListEl = document.getElementById('invList');
+    const filterRow = document.getElementById('filterRow');
+
+    coinsEl.textContent = String(coins);
+
+    function renderShop(filter='all'){
+      shopGrid.innerHTML = '';
+      const list = shopItems.filter(it => filter === 'all' ? true : it.type === filter);
+      list.forEach(it=>{
+        const div = document.createElement('div');
+        div.className = 'item';
+        div.innerHTML = `
+          <div class="icon">${it.name.charAt(0)}</div>
+          <div class="meta"><div class="name">${escapeHtml(it.name)}</div><div class="desc">${escapeHtml(it.desc)}</div></div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+            <div style="font-weight:700">${it.price}</div>
+            <button class="buy" data-id="${it.id}">購入</button>
+          </div>
+        `;
+        shopGrid.appendChild(div);
+      });
+    }
+
+    function renderInventory(){
+      if(!inventory || inventory.length===0){ invListEl.textContent = 'なし'; return; }
+      invListEl.innerHTML = '';
+      inventory.forEach(itId=>{
+        const it = shopItems.find(s=>s.id===itId);
+        if(!it) return;
+        const d = document.createElement('div');
+        d.textContent = `${it.name} (${it.type})`;
+        invListEl.appendChild(d);
+      });
+    }
+
+    shopToggle.addEventListener('click', ()=>{
+      const open = shopPanel.classList.toggle('open');
+      shopPanel.setAttribute('aria-hidden', String(!open));
+      shopToggle.setAttribute('title', open ? 'ショップを閉じる' : 'ショップを開く');
+      shopToggle.animate([{transform:'rotate(0)'},{transform:'rotate(18deg)'},{transform:'rotate(0)'}],{duration:420});
+    });
+
+    shopGrid.addEventListener('click', (e)=>{
+      const b = e.target.closest('.buy');
+      if(!b) return;
+      const id = b.getAttribute('data-id');
+      buyItem(id);
+    });
+
+    filterRow.addEventListener('click', (e)=>{
+      const p = e.target.closest('.pill');
+      if(!p) return;
+      [...filterRow.querySelectorAll('.pill')].forEach(x=>x.classList.remove('active'));
+      p.classList.add('active');
+      const f = p.getAttribute('data-filter');
+      renderShop(f);
+    });
+
+    function buyItem(id){
+      const it = shopItems.find(s=>s.id===id);
+      if(!it) return alert('アイテムが見つかりません');
+      if(coins < it.price) return alert('コインが足りません');
+      coins -= it.price;
+      coinsEl.textContent = String(coins);
+      inventory.push(it.id);
+      localStorage.setItem(STORAGE_KEY + '_coins', String(coins));
+      localStorage.setItem(STORAGE_KEY + '_inv', JSON.stringify(inventory));
+      renderInventory();
+      const text = `${nickInput.value||'Anonymous'} が ${it.name} を購入しました`;
+      const msg = {nick:'System', text, ts: Date.now()};
+      pushMessageToDOM(msg, false);
+      broadcast({type:'chat', payload:msg});
+    }
+
+    renderShop('all');
+    renderInventory();
+
+    // 初回ハートビート
+    startHeartbeat();
+    setInterval(cleanupOffline, 2000);
+  </script>
+</body>
+</html>
